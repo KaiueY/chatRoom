@@ -1,0 +1,9 @@
+/* 确保所有 SVG 图标默认可见 */
+svg {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+    vertical-align: -0.15em;
+    fill: currentColor; /* 继承父级颜色 */
+    overflow: hidden;
+  }
