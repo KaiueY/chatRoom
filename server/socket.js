@@ -62,7 +62,7 @@ export function initSocketIO(server) {
         }
         
         // 查找用户
-        const user = await knex('users').where({ username }).first();
+        const user = await knex('user').where({ username }).first();
         if (!user) {
           return callback({ error: { message: '用户名或密码错误' } });
         }
@@ -111,7 +111,7 @@ export function initSocketIO(server) {
         }
         
         // 检查用户名是否已存在
-        const existingUser = await knex('users').where({ username }).first();
+        const existingUser = await knex('user').where({ username }).first();
         if (existingUser) {
           return callback({ error: { message: '用户名已存在' } });
         }
@@ -121,7 +121,7 @@ export function initSocketIO(server) {
         const hashedPassword = await hash(password, salt);
         
         // 创建新用户
-        const [userId] = await knex('users').insert({
+        const [userId] = await knex('user').insert({
           username,
           password: hashedPassword,
           created_at: new Date()
@@ -167,12 +167,20 @@ export function initSocketIO(server) {
     socket.on('join', async (data, callback) => {
       const { userId, username } = data;
       
+      // 验证用户数据
+      if (!userId || !username) {
+        console.error('无效的用户加入数据:', data);
+        return callback({ error: { message: '无效的用户加入数据' } });
+      }
+      
       // 创建系统消息
       const joinMessage = {
+        id: Date.now().toString(), // 添加唯一ID
         type: 'join',
         userId,
         username,
-        time: new Date().toISOString()
+        content: `${username} 加入了聊天室`,
+        created_at: new Date().toISOString()
       };
       
       // 广播用户加入消息
@@ -198,15 +206,23 @@ export function initSocketIO(server) {
     socket.on('message', async (data, callback) => {
       const { userId, username, content } = data;
       
+      // 验证消息数据
+      if (!userId || !content) {
+        console.error('无效的消息数据:', data);
+        return callback({ error: { message: '无效的消息数据' } });
+      }
+      
       // 创建消息对象
       const messageData = {
+        id: Date.now().toString(), // 添加唯一ID
         type: 'message',
         userId,
         username,
-        text: content,
-        time: new Date().toISOString()
+        senderName: username,
+        content: content, // 使用content字段而不是text
+        created_at: new Date().toISOString()
       };
-      console.log('接收消息',data);
+      console.log('接收消息', messageData);
       
       // 广播消息给所有客户端
       io.emit('message', messageData);

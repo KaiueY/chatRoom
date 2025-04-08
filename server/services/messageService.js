@@ -84,20 +84,22 @@ export async function getUserMessages(userId, limit = 50, offset = 0) {
  * @param {number} offset - 分页偏移量 (默认0)
  * @returns {Promise<Array>} 消息列表
  */
-export async function getRoomMessages(roomId = 1, limit = 50, offset = 0) {
+export async function getRoomMessages(roomId = 1, limit = 50, offset = 0,) {
   return knex('roomMessages')
-  .where('roomId', roomId)
-  .whereNot('messageType', 'system')
-  .leftJoin('user', 'roomMessages.userId', 'user.id')
-  .select(
-    'roomMessages.userId',
-    'roomMessages.created_at',
-    'roomMessages.content',
-    'user.username as senderName'
-  )
-  .orderBy('roomMessages.created_at', 'asc')
-  .limit(limit)
-  .offset(offset);
+    .where('roomId', roomId)
+    .whereNot('messageType', 'system')
+    .leftJoin('user', 'roomMessages.userId', 'user.id')
+    .select(
+      'roomMessages.id',
+      'roomMessages.messageType',
+      'roomMessages.userId',
+      'roomMessages.created_at',
+      'roomMessages.content',
+      'user.username as senderName'
+    )
+    .orderBy('roomMessages.created_at', 'desc') // Changed from 'asc' to 'desc'
+    .limit(limit)
+    .offset(offset);
 }
 
 /**

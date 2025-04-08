@@ -5,28 +5,31 @@ import Router from 'koa-router';
 import { getUserMessages, getRoomMessages } from '../services/messageService.js';
 import jwt from 'jsonwebtoken';
 import config from '../config.js';
+import authMiddleware from '../middleware/authMiddleware.js';
+
+
 
 const router = new Router();
 
 // 中间件：验证JWT令牌
-const authMiddleware = async (ctx, next) => {
-  const token = ctx.headers.authorization?.split(' ')[1];
+// const authMiddleware = async (ctx, next) => {
+//   const token = ctx.headers.authorization?.split(' ')[1];
   
-  if (!token) {
-    ctx.status = 401;
-    ctx.body = { message: '未提供认证令牌' };
-    return;
-  }
+//   if (!token) {
+//     ctx.status = 401;
+//     ctx.body = { message: '未提供认证令牌' };
+//     return;
+//   }
   
-  try {
-    const decoded = jwt.verify(token, config.jwt.secret);
-    ctx.state.user = decoded;
-    await next();
-  } catch (error) {
-    ctx.status = 401;
-    ctx.body = { message: '认证令牌无效' };
-  }
-};
+//   try {
+//     const decoded = jwt.verify(token, config.jwt.secret);
+//     ctx.state.user = decoded;
+//     await next();
+//   } catch (error) {
+//     ctx.status = 401;
+//     ctx.body = { message: '认证令牌无效' };
+//   }
+// };
 
 /**
  * 获取用户的消息历史
@@ -59,16 +62,18 @@ router.get('/user/messages', authMiddleware, async (ctx) => {
  */
 router.get('/room/messages', authMiddleware, async (ctx) => {
   try {
-    const roomId = parseInt(ctx.params.roomId) || 1;
-    const limit = parseInt(ctx.query.limit) || 50;
-    const offset = parseInt(ctx.query.offset) || 0;
-    
+    // const roomId = parseInt(ctx.params.roomId) || 1;
+    const { roomId, limit, offset = 0 } = ctx.query;
+    // const limit = parseInt(ctx.query.limit) || 50;
+    // const offset = parseInt(ctx.query.offset) || 0;
+    console.log('已接受聊天室消息请求',roomId,limit,offset);
+        
     const messages = await getRoomMessages(roomId, limit, offset);
     
     ctx.body = {
       code: 200,
       message: '操作成功',
-      data: messages
+      data: messages.reverse()
     };
   } catch (error) {
     console.error('获取聊天室消息错误:', error);

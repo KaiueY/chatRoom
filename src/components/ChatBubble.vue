@@ -1,7 +1,7 @@
 <template>
   <div class="bubble-wrapper" :class="{ mine: isMine }">
     <el-avatar :size="32" class="avatar">
-      {{ username[0].toUpperCase() }}
+      {{ username ? username[0].toUpperCase() : 'bot' }}
     </el-avatar>
 
     <div class="bubble-content-wrapper">
