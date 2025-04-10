@@ -66,10 +66,11 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue';
-import { Document, Picture } from '@element-plus/icons-vue';
 import formatDateTime from '@/utils/formatDateTime.js';
 import axios from 'axios';
 import message from '@/components/Message';
+import formatFileSize from '@/utils/formatFileSize'
+
 
 const props = defineProps({
   visible: Boolean,
@@ -100,21 +101,6 @@ const closeHistory = () => {
   emit('close');
 };
 
-// 格式化文件大小
-const formatFileSize = (size) => {
-  if (!size) return '未知大小';
-  
-  const units = ['B', 'KB', 'MB', 'GB'];
-  let fileSize = size;
-  let unitIndex = 0;
-  
-  while (fileSize >= 1024 && unitIndex < units.length - 1) {
-    fileSize /= 1024;
-    unitIndex++;
-  }
-  
-  return `${fileSize.toFixed(2)} ${units[unitIndex]}`;
-};
 
 // 加载消息历史
 const loadMessages = async (reset = true) => {

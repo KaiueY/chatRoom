@@ -5,6 +5,7 @@ import http from 'http';
 import cors from '@koa/cors'; // 新增跨域支持
 import { initSocketIO } from './socket.js';
 import messageRoutes from './routes/messages.js';
+import fileRoutes from './routes/files.js';
 import config from './config.js';
 
 const app = new Koa();
@@ -37,9 +38,15 @@ router.get('/', async (ctx) => {
 });
 // 路由注册
 app.use(messageRoutes.routes()).use(messageRoutes.allowedMethods());
+app.use(fileRoutes.routes()).use(fileRoutes.allowedMethods());
 app.use(router.routes()).use(router.allowedMethods());
+
+// 打印注册的路由
 messageRoutes.stack.forEach(layer => {
-  console.log(layer.path, layer.methods);
+  console.log('Message路由:', layer.path, layer.methods);
+});
+fileRoutes.stack.forEach(layer => {
+  console.log('File路由:', layer.path, layer.methods);
 });
 // 创建服务器
 const server = http.createServer(app.callback());

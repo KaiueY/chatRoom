@@ -7,6 +7,7 @@ import { genSalt, hash, compare } from 'bcryptjs';
 import knex from './db/knex.js';
 import config from './config.js';
 import { saveUserMessage, saveRoomMessage } from './services/messageService.js';
+import { getFileInfo } from './services/fileService.js';
 
 // 存储连接的客户端
 const clients = new Map();
@@ -26,12 +27,16 @@ export function initSocketIO(server) {
   // 中间件：连接认证
   io.use((socket, next) => {
     const token = socket.handshake.auth.token;
-    
+    console.log('验证token',token);
     // 如果提供了token，验证它
     if (token) {
       try {
+       
+        
         const decoded = jwt.verify(token, config.jwt.secret);
         socket.user = decoded;
+        console.log('验证成功');
+        
         return next();
       } catch (error) {
         return next(new Error('认证失败'));
@@ -85,6 +90,7 @@ export function initSocketIO(server) {
         
         // 将用户信息存储在socket对象中
         socket.user = { id: user.id, username: user.username };
+        console.log(socket.user,'socket.user');
         
         // 发送认证成功事件
         socket.emit('auth_success', {
@@ -139,6 +145,7 @@ export function initSocketIO(server) {
         
         // 将用户信息存储在socket对象中
         socket.user = { id: userId, username };
+        
         
         // 发送认证成功事件
         socket.emit('auth_success', {
@@ -203,39 +210,29 @@ export function initSocketIO(server) {
     });
     
     // 消息事件
-    socket.on('message', async (data, callback) => {
-      const { userId, username, content } = data;
-      
-      // 验证消息数据
-      if (!userId || !content) {
-        console.error('无效的消息数据:', data);
-        return callback({ error: { message: '无效的消息数据' } });
-      }
-      
-      // 创建消息对象
-      const messageData = {
-        id: Date.now().toString(), // 添加唯一ID
-        type: 'message',
-        userId,
-        username,
-        senderName: username,
-        content: content, // 使用content字段而不是text
-        created_at: new Date().toISOString()
-      };
-      console.log('接收消息', messageData);
-      
-      // 广播消息给所有客户端
-      io.emit('message', messageData);
-      
+    socket.on('message', async (messageData, callback) => {
       try {
-        // 保存用户消息到数据库
-        await saveUserMessage({
-          userId: parseInt(userId),
-          content,
-          messageType: 'text'
-        });
+        const { content, userId, username } = messageData;
         
-        // 保存聊天室消息到数据库
+        // 验证消息数据
+        if (!content || !userId || !username) {
+          return callback({ error: { message: '无效的消息数据' } });
+        }
+        
+        // 创建消息对象
+        const message = {
+          id: Date.now().toString(), // 添加唯一ID
+          type: 'message',
+          content,
+          userId,
+          username,
+          time: new Date().toISOString()
+        };
+        
+        // 广播消息给所有客户端
+        io.emit('message', message);
+        
+        // 保存消息到数据库
         await saveRoomMessage({
           roomId: 1, // 默认聊天室
           userId: parseInt(userId),
@@ -245,45 +242,118 @@ export function initSocketIO(server) {
         
         callback({ success: true });
       } catch (error) {
-        console.error('保存消息错误:', error);
-        callback({ success: true }); // 即使保存失败也返回成功，不影响用户体验
+        console.error('处理消息错误:', error);
+        callback({ error: { message: '服务器错误' } });
       }
     });
     
-    // 文件事件
-    socket.on('file', async (data, callback) => {
-      const { userId, username, fileName, fileType, fileSize, fileData } = data;
-      
-      // 广播文件给所有客户端
-      io.emit('file', data);
-      
+    // 文件消息事件
+    socket.on('file', async (fileData, callback) => {
       try {
-        // 保存文件消息到数据库
-        // 注意：这里简化处理，实际应用中应该将文件保存到文件系统或云存储
-        await saveUserMessage({
-          userId: parseInt(userId),
-          content: `发送了文件: ${fileName}`,
-          messageType: 'file',
-          fileName,
-          fileSize
-        });
+        console.log('文件消息事件触发',socket.user);
         
-        // 保存聊天室文件消息
+        // 验证用户是否已登录
+        if (!socket.user) {
+          return callback && callback({ error: { message: '未登录，无法发送文件' } });
+        }
+        
+        const { userId, username, fileName, fileType, fileSize, fileUrl, fileId } = fileData;
+        
+        // 验证文件数据
+        if (!userId || !username || !fileName || !fileUrl || !fileId) {
+          return callback && callback({ error: { message: '无效的文件数据' } });
+        }
+        
+        // 创建文件消息对象
+        const fileMessage = {
+          id: Date.now().toString(),
+          type: 'file',
+          userId,
+          username,
+          fileName,
+          fileType,
+          fileSize,
+          fileUrl,
+          fileId,
+          time: new Date().toISOString()
+        };
+        
+        // 广播文件消息给所有客户端
+        io.emit('file', fileMessage);
+        
+        // 确定消息类型
+        let messageType = 'file';
+        if (fileType && fileType.startsWith('image/')) {
+          messageType = 'image';
+        }
+        
+        // 保存文件消息到数据库
         await saveRoomMessage({
           roomId: 1, // 默认聊天室
           userId: parseInt(userId),
-          content: `发送了文件: ${fileName}`,
-          messageType: 'file',
+          content: `${username} 分享了文件: ${fileName}`,
+          messageType,
+          fileUrl,
           fileName,
           fileSize
         });
         
-        callback({ success: true });
+        if (callback) callback({ success: true });
       } catch (error) {
-        console.error('保存文件消息错误:', error);
-        callback({ success: true }); // 即使保存失败也返回成功，不影响用户体验
+        console.error('处理文件消息错误:', error);
+        if (callback) callback({ error: { message: '服务器错误' } });
       }
     });
+    
+    // 处理文件上传完成事件
+    socket.on('file_uploaded', async (data, callback) => {
+      try {
+        const { fileId, fileName, fileType, fileSize, fileUrl } = data;
+        
+        if (!socket.user) {
+          return callback({ error: { message: '未登录，无法发送文件' } });
+        }
+        
+        // 创建文件消息
+        const fileMessage = {
+          userId: socket.user.id,
+          username: socket.user.username,
+          fileName,
+          fileType,
+          fileSize,
+          fileUrl,
+          fileId,
+          messageType: 'file',
+          content: `${socket.user.username} 发送了文件: ${fileName}`,
+          time: new Date().toISOString()
+        };
+        
+        // 保存到数据库
+        const messageId = await saveRoomMessage({
+          roomId: 1, // 默认聊天室
+          userId: socket.user.id,
+          content: fileMessage.content,
+          messageType: 'file',
+          fileUrl,
+          fileName,
+          fileSize
+        });
+        
+        // 添加消息ID
+        fileMessage.id = messageId;
+        
+        // 广播给所有客户端
+        io.emit('file', fileMessage);
+        
+        callback({ success: true });
+      } catch (error) {
+        console.error('处理文件上传错误:', error);
+        callback({ error: { message: '服务器错误' } });
+      }
+    });
+    
+    // 注意：文件事件处理已合并到上面的'file'事件处理器中
+    // 此处删除重复的处理器以避免冲突
     
     // 图片事件
     socket.on('image', async (data, callback) => {

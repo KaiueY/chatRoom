@@ -19,12 +19,20 @@ class SocketIOClient {
   connect(options = {}) {
     return new Promise((resolve, reject) => {
       try {
-        // 如果已经连接，先断开
+        // 如果已经连接且处于活动状态，直接返回成功
+        if (this.socket && this.connected) {
+          console.log('Socket已连接，无需重新连接');
+          return resolve(this.socket);
+        }
+        
+        // 如果有socket实例但未连接，先断开
         if (this.socket) {
+          console.log('断开旧连接，准备重新连接');  
           this.disconnect();
         }
 
-        const serverUrl = options.serverUrl || this.serverUrl;
+        const serverUrl = this.serverUrl;
+        console.log('连接到服务器:', options);
         
         // 创建Socket.IO连接
         this.socket = io(serverUrl, {
@@ -209,32 +217,35 @@ class SocketIOClient {
    */
   sendFile(fileData) {
     return new Promise((resolve, reject) => {
-      const { file, userId, username } = fileData;
-      
-      // 将文件转换为Base64
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      
-      reader.onload = () => {
-        const base64File = reader.result;
-        
-        this.emit('file', {
-          type: 'file',
-          userId,
-          username,
-          fileName: file.name,
-          fileType: file.type,
-          fileSize: file.size,
-          fileData: base64File,
-          time: new Date().toISOString()
-        })
-          .then(resolve)
-          .catch(reject);
-      };
-      
-      reader.onerror = (error) => {
+      try {
+        // 导入文件上传器
+        const fileUploader = import('@/utils/fileUploader').then(module => {
+          const uploader = module.default;
+          
+          // 设置回调函数
+          const originalOnSuccess = uploader.onSuccess;
+          const originalOnError = uploader.onError;
+          
+          uploader.onSuccess = (task) => {
+            if (originalOnSuccess) originalOnSuccess(task);
+            resolve(task.result);
+          };
+          
+          uploader.onError = (task, error) => {
+            if (originalOnError) originalOnError(task, error);
+            reject(error);
+          };
+          
+          // 添加文件到上传队列
+          uploader.addFile(fileData.file, {
+            userId: fileData.userId,
+            username: fileData.username
+          });
+        });
+      } catch (error) {
+        console.error('文件上传错误:', error);
         reject(error);
-      };
+      }
     });
   }
 

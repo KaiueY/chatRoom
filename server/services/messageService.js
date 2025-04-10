@@ -94,7 +94,10 @@ export async function getRoomMessages(roomId = 1, limit = 50, offset = 0,) {
       'roomMessages.messageType',
       'roomMessages.userId',
       'roomMessages.created_at',
+      'roomMessages.fileUrl', 
       'roomMessages.content',
+      'roomMessages.fileName',
+      'roomMessages.fileSize',
       'user.username as senderName'
     )
     .orderBy('roomMessages.created_at', 'desc') // Changed from 'asc' to 'desc'

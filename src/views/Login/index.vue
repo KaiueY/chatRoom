@@ -74,9 +74,12 @@ const router = useRouter();
 // 初始化Socket.IO连接
 onMounted(async () => {
   try {
+    // console.log('正在连接Socket.IO服务器...');
+    const socketToken = localStorage.getItem('token');
+    const auth = {token: socketToken};
     // 如果Socket.IO未连接，则连接
     if (!socketClient.isConnected()) {
-      await socketClient.connect();
+      await socketClient.connect({auth});
     }
     
     // 监听认证事件
@@ -146,8 +149,6 @@ const handleRegister = async () => {
 // 处理认证成功
 const handleAuthSuccess = (data) => {
   const action = activeTab.value === 'login' ? '登录' : '注册';
-  message.success(`${action}成功`);
-  
   // 保存用户信息到本地存储
   localStorage.setItem('userId', data.user.id);
   localStorage.setItem('username', data.user.username);
@@ -158,9 +159,19 @@ const handleAuthSuccess = (data) => {
     userId: data.user.id,
     username: data.user.username
   });
-  
-  // 跳转到首页
-  router.push('/');
+  if(activeTab.value === 'register'){
+    activeTab.value = 'login';
+    // 清空表单
+    formData.username = '';
+    formData.password = '';
+    formData.confirmPassword = '';
+    // 提示用户登录
+    message.success('注册成功');
+    router.push('/login');
+  }else{
+    message.success('登录成功');
+    router.push('/');
+  }
 };
 
 // 处理认证错误
