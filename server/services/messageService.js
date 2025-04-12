@@ -2,31 +2,8 @@
  * 消息服务 - 处理消息的存储和检索
  */
 import knex from '../db/knex.js';
+import {formatTime} from '../utils/formatTime.js'
 
-/**
- * 保存用户消息到数据库
- * @param {Object} messageData - 消息数据
- * @param {number} messageData.userId - 用户ID
- * @param {string} messageData.content - 消息内容
- * @param {string} messageData.messageType - 消息类型 (text, file, image)
- * @param {string} [messageData.fileUrl] - 文件URL (可选)
- * @param {string} [messageData.fileName] - 文件名 (可选)
- * @param {number} [messageData.fileSize] - 文件大小 (可选)
- * @returns {Promise<number>} 插入的消息ID
- */
-export async function saveUserMessage(messageData) {
-  const [messageId] = await knex('userMessages').insert({
-    userId: messageData.userId,
-    content: messageData.content,
-    messageType: messageData.messageType || 'text',
-    fileUrl: messageData.fileUrl,
-    fileName: messageData.fileName,
-    fileSize: messageData.fileSize,
-    created_at: new Date()
-  });
-  
-  return messageId;
-}
 
 /**
  * 保存聊天室消息到数据库
@@ -35,26 +12,22 @@ export async function saveUserMessage(messageData) {
  * @param {number} messageData.userId - 用户ID
  * @param {string} messageData.content - 消息内容
  * @param {string} messageData.messageType - 消息类型 (text, file, image, system)
- * @param {string} [messageData.fileUrl] - 文件URL (可选)
- * @param {string} [messageData.fileName] - 文件名 (可选)
- * @param {number} [messageData.fileSize] - 文件大小 (可选)
+ * @param {number} [messageData.fileId] - 文件ID (可选，用于文件类型消息)
  * @returns {Promise<number>} 插入的消息ID
  */
 export async function saveRoomMessage(messageData) {
-    const res = await knex('roomMessages').insert({
-//   const [messageId] = await knex('roomMessages').insert({
+    // const res = await knex('roomMessages').insert({
+  const [messageId] = await knex('roomMessages').insert({
     roomId: messageData.roomId || 1,
     userId: messageData.userId,
     content: messageData.content,
     messageType: messageData.messageType || 'text',
-    fileUrl: messageData.fileUrl,
-    fileName: messageData.fileName,
-    fileSize: messageData.fileSize,
-    created_at: new Date()
+    fileId: messageData.fileId || null,
+    created_at: messageData.created_at || formatTime(),
   });
 //   console.log(res,'----');
   
-  return res;
+  return messageId;
 }
 
 /**
@@ -68,7 +41,7 @@ export async function getUserMessages(userId, limit = 50, offset = 0) {
    return knex('userMessages')
     .select(
       'userMessages.*',                 // 选择消息表的所有字段
-      'user.username as senderName'     // 从 user 表中选择 username 并重命名为 senderName
+      'user.username' 
     )
     .leftJoin('user', 'userMessages.userId', 'user.id') // 左关联 user 表
     .where('userMessages.userId', userId)
@@ -84,23 +57,26 @@ export async function getUserMessages(userId, limit = 50, offset = 0) {
  * @param {number} offset - 分页偏移量 (默认0)
  * @returns {Promise<Array>} 消息列表
  */
-export async function getRoomMessages(roomId = 1, limit = 50, offset = 0,) {
-  return knex('roomMessages')
+export async function getRoomMessages(roomId = 1, limit = 50, offset = 0) {
+  return await knex('roomMessages')
     .where('roomId', roomId)
     .whereNot('messageType', 'system')
+    // .whereIn('messageType', ['file', 'image']) // 只查询 messageType 为 'file' 或 'image' 的记录
     .leftJoin('user', 'roomMessages.userId', 'user.id')
+    .leftJoin('file', 'roomMessages.fileId', 'file.id')
     .select(
       'roomMessages.id',
       'roomMessages.messageType',
       'roomMessages.userId',
       'roomMessages.created_at',
-      'roomMessages.fileUrl', 
       'roomMessages.content',
-      'roomMessages.fileName',
-      'roomMessages.fileSize',
-      'user.username as senderName'
+      'roomMessages.fileId',
+      'file.fileUrl', 
+      'file.fileName',
+      'file.fileSize',
+      'user.username'
     )
-    .orderBy('roomMessages.created_at', 'desc') // Changed from 'asc' to 'desc'
+    .orderBy('roomMessages.created_at', 'desc') // 按时间倒序排列
     .limit(limit)
     .offset(offset);
 }

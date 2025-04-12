@@ -2,10 +2,12 @@ import Koa from 'koa';
 import Router from 'koa-router';
 import bodyParser from 'koa-bodyparser';
 import http from 'http';
+import serve from 'koa-static';
 import cors from '@koa/cors'; // 新增跨域支持
 import { initSocketIO } from './socket.js';
 import messageRoutes from './routes/messages.js';
 import fileRoutes from './routes/files.js';
+import ossRouter from './routes/ossUpload.js';
 import config from './config.js';
 
 const app = new Koa();
@@ -36,9 +38,11 @@ router.get('/', async (ctx) => {
     message: 'MyNote API Server is running'
   };
 });
+
+router.use(ossRouter.routes(), ossRouter.allowedMethods());
+router.use(messageRoutes.routes(), messageRoutes.allowedMethods());
+router.use(fileRoutes.routes(), fileRoutes.allowedMethods());
 // 路由注册
-app.use(messageRoutes.routes()).use(messageRoutes.allowedMethods());
-app.use(fileRoutes.routes()).use(fileRoutes.allowedMethods());
 app.use(router.routes()).use(router.allowedMethods());
 
 // 打印注册的路由
@@ -48,6 +52,8 @@ messageRoutes.stack.forEach(layer => {
 fileRoutes.stack.forEach(layer => {
   console.log('File路由:', layer.path, layer.methods);
 });
+
+
 // 创建服务器
 const server = http.createServer(app.callback());
 

@@ -11,25 +11,6 @@ import authMiddleware from '../middleware/authMiddleware.js';
 
 const router = new Router();
 
-// 中间件：验证JWT令牌
-// const authMiddleware = async (ctx, next) => {
-//   const token = ctx.headers.authorization?.split(' ')[1];
-  
-//   if (!token) {
-//     ctx.status = 401;
-//     ctx.body = { message: '未提供认证令牌' };
-//     return;
-//   }
-  
-//   try {
-//     const decoded = jwt.verify(token, config.jwt.secret);
-//     ctx.state.user = decoded;
-//     await next();
-//   } catch (error) {
-//     ctx.status = 401;
-//     ctx.body = { message: '认证令牌无效' };
-//   }
-// };
 
 /**
  * 获取用户的消息历史
@@ -64,11 +45,11 @@ router.get('/room/messages', authMiddleware, async (ctx) => {
   try {
     // const roomId = parseInt(ctx.params.roomId) || 1;
     const { roomId, limit, offset = 0 } = ctx.query;
-    // const limit = parseInt(ctx.query.limit) || 50;
-    // const offset = parseInt(ctx.query.offset) || 0;
-    console.log('已接受聊天室消息请求',roomId,limit,offset);
-        
+    console.log('已接受聊天室消息请求');
+    console.log(roomId,limit,offset);
+    
     const messages = await getRoomMessages(roomId, limit, offset);
+    // console.log('聊天室消息获取成功',messages);
     
     ctx.body = {
       code: 200,

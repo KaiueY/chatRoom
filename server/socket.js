@@ -5,13 +5,29 @@ import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { genSalt, hash, compare } from 'bcryptjs';
 import knex from './db/knex.js';
+import {formatTime} from './utils/formatTime.js';
 import config from './config.js';
-import { saveUserMessage, saveRoomMessage } from './services/messageService.js';
-import { getFileInfo } from './services/fileService.js';
+import { saveRoomMessage } from './services/messageService.js';
+import { getFileInfo,uploadFileMessage } from './services/fileService.js';
 
 // 存储连接的客户端
 const clients = new Map();
 
+const verifyToken = (token) => {
+  try {
+    const decoded = jwt.verify(token, config.jwt.secret);
+    return { valid: true, decoded };
+  } catch (err) {
+    return { valid: false, error: err };
+  }
+}
+
+const  isUserAlreadyOnline = (userId)=> {
+  for (const { userId: id } of clients.values()) {
+    if (id === userId) return true;
+  }
+  return false;
+}
 /**
  * 初始化Socket.IO服务器
  * @param {Object} server - HTTP服务器实例
@@ -26,31 +42,27 @@ export function initSocketIO(server) {
 
   // 中间件：连接认证
   io.use((socket, next) => {
-    const token = socket.handshake.auth.token;
-    console.log('验证token',token);
-    // 如果提供了token，验证它
-    if (token) {
-      try {
-       
-        
-        const decoded = jwt.verify(token, config.jwt.secret);
-        socket.user = decoded;
-        console.log('验证成功');
-        
-        return next();
-      } catch (error) {
-        return next(new Error('认证失败'));
-      }
-    }
     
-    // 没有token也允许连接，但用户需要登录才能执行某些操作
-    next();
+    // 如果是注册请求，直接放行
+    const token = socket.handshake.auth.token;
+    // 如果提供了token，验证它
+    if(!token){
+      return next();
+    }
+    const { valid, decoded} = verifyToken(token);
+    if (valid) {
+      const {id,username} = decoded;
+      // 将用户信息存储在socket对象中
+      socket.user = {id,username};
+      return next();
+    }else{
+      return next(new Error('认证失败'));
+    }
   });
 
   // 连接事件
   io.on('connection', (socket) => {
     console.log('客户端已连接:', socket.id);
-    
     // 为每个连接分配一个唯一ID
     const clientId = socket.id;
     clients.set(clientId, { socket, userId: socket.user?.id, username: socket.user?.username });
@@ -59,7 +71,6 @@ export function initSocketIO(server) {
     socket.on('login', async (credentials, callback) => {
       try {
         const { username, password } = credentials;
-        console.log('登录请求');
         
         // 验证请求数据
         if (!username || !password) {
@@ -68,16 +79,24 @@ export function initSocketIO(server) {
         
         // 查找用户
         const user = await knex('user').where({ username }).first();
-        if (!user) {
-          return callback({ error: { message: '用户名或密码错误' } });
-        }
+        // console.log('user',user);
         
+        if (!user) {
+          return callback({ error: { message: '该用户不存在' } });
+        }
+
         // 验证密码
         const isPasswordValid = await compare(password, user.password);
         if (!isPasswordValid) {
           return callback({ error: { message: '用户名或密码错误' } });
         }
-        
+
+        const alreadyOnline =  isUserAlreadyOnline(user.id);
+        if (alreadyOnline) {
+          return callback({ error: { message: '该用户已在别处登录' } });
+        }
+        await knex('user').where({ id: user.id }).update({ status: 'online' });
+
         // 生成JWT令牌
         const token = jwt.sign(
           { id: user.id, username: user.username },
@@ -90,25 +109,28 @@ export function initSocketIO(server) {
         
         // 将用户信息存储在socket对象中
         socket.user = { id: user.id, username: user.username };
-        console.log(socket.user,'socket.user');
+        // console.log('socket----',socket);
         
-        // 发送认证成功事件
-        socket.emit('auth_success', {
-          user: { id: user.id, username: user.username },
-          token
+        // console.log('clients---',clients);
+        callback({ 
+          success: true,
+          data: {
+            user: { id: user.id, username },
+            token
+          },
+          code:'200'
         });
-        
-        callback({ success: true });
       } catch (error) {
         console.error('登录错误:', error);
         callback({ error: { message: '服务器错误' } });
-        socket.emit('auth_error', { message: '服务器错误' });
       }
     });
     
     // 注册事件
     socket.on('register', async (userData, callback) => {
       try {
+        console.log('用户注册', userData);
+        
         const { username, password } = userData;
         
         // 验证请求数据
@@ -117,11 +139,10 @@ export function initSocketIO(server) {
         }
         
         // 检查用户名是否已存在
-        const existingUser = await knex('user').where({ username }).first();
-        if (existingUser) {
+        const exist = await knex('user').where({ username }).first();
+        if (exist) {
           return callback({ error: { message: '用户名已存在' } });
         }
-        
         // 密码加密
         const salt = await genSalt(10);
         const hashedPassword = await hash(password, salt);
@@ -133,112 +154,103 @@ export function initSocketIO(server) {
           created_at: new Date()
         });
         
-        // 生成JWT令牌
+        // 更新客户端信息
+        clients.set(clientId, { socket, userId, username });
+        socket.user = { id: userId, username: username };
         const token = jwt.sign(
           { id: userId, username },
           config.jwt.secret,
           { expiresIn: config.jwt.expiresIn }
         );
+        // console.log('token',token);
         
-        // 更新客户端信息
-        clients.set(clientId, { socket, userId, username });
+        // socket.emit('auth_success', {
+        //   user: { id: userId, username },
+        //   token
+        // });
         
-        // 将用户信息存储在socket对象中
-        socket.user = { id: userId, username };
-        
-        
-        // 发送认证成功事件
-        socket.emit('auth_success', {
-          user: { id: userId, username },
-          token
+        callback({ 
+          success: true,
+          data: {
+            user: { id: userId, username },
+            token
+          },
+          code:'200'
         });
-        
-        callback({ success: true });
       } catch (error) {
-        console.error('注册错误:', error);
+        console.error('注册错误12:', error);
         callback({ error: { message: '服务器错误' } });
-        socket.emit('auth_error', { message: '服务器错误' });
       }
     });
     
     // 退出登录事件
-    socket.on('logout', (data, callback) => {
+    socket.on('logout', async(data, callback) => {
       // 清除用户信息
+      await knex('user').where({ id: user.id }).update({ status: 'offline' });
       socket.user = null;
-      clients.set(clientId, { socket, userId: null, username: null });
-      
+      clients.delete(clientId);
       callback({ success: true });
     });
     
     // 加入聊天事件
     socket.on('join', async (data, callback) => {
-      const { userId, username } = data;
+      const { userId, username,roomId,time } = data;
       
       // 验证用户数据
       if (!userId || !username) {
         console.error('无效的用户加入数据:', data);
         return callback({ error: { message: '无效的用户加入数据' } });
       }
-      
-      // 创建系统消息
+
       const joinMessage = {
-        id: Date.now().toString(), // 添加唯一ID
-        type: 'join',
+        roomId,
+        messageType: 'system',
         userId,
         username,
         content: `${username} 加入了聊天室`,
-        created_at: new Date().toISOString()
+        created_at: time,
       };
       
-      // 广播用户加入消息
-      socket.broadcast.emit('join', joinMessage);
       
       try {
         // 保存系统消息到数据库
-        await saveRoomMessage({
-          roomId: 1, // 默认聊天室
-          userId: parseInt(userId),
-          content: `${username} 加入了聊天室`,
-          messageType: 'system'
-        });
+        joinMessage.id =  await saveRoomMessage(joinMessage);
         
         callback({ success: true });
       } catch (error) {
         console.error('保存加入消息错误:', error);
         callback({ success: true }); // 即使保存失败也返回成功，不影响用户体验
       }
+      // 广播用户加入消息
+      socket.to(roomId).emit('join', joinMessage);
+      
     });
     
     // 消息事件
     socket.on('message', async (messageData, callback) => {
-      try {
-        const { content, userId, username } = messageData;
+      console.log('messageData',messageData);
+      try {  
+        // 验证消息数据 return callback({ error: { message: '无效的消息数据' } });
         
-        // 验证消息数据
-        if (!content || !userId || !username) {
-          return callback({ error: { message: '无效的消息数据' } });
-        }
-        
-        // 创建消息对象
-        const message = {
-          id: Date.now().toString(), // 添加唯一ID
-          type: 'message',
-          content,
-          userId,
-          username,
-          time: new Date().toISOString()
-        };
-        
-        // 广播消息给所有客户端
-        io.emit('message', message);
-        
+        const {roomId} = messageData;
         // 保存消息到数据库
-        await saveRoomMessage({
-          roomId: 1, // 默认聊天室
-          userId: parseInt(userId),
-          content,
-          messageType: 'text'
-        });
+        messageData.id = await saveRoomMessage(messageData);
+        // 广播消息给所有客户端，包括发送者
+// 检查当前聊天室内的用户
+const roomUsers = Array.from(io.sockets.adapter.rooms.get(roomId) || [])
+  .map(socketId => {
+    const client = Array.from(clients.values())
+      .find(client => client.socket.id === socketId);
+    return client ? {
+      userId: client.userId,
+      username: client.username
+    } : null;
+  })
+  .filter(user => user !== null);
+
+console.log(`当前聊天室 ${roomId} 的用户:`, roomUsers);
+        io.to(roomId).emit('message', messageData);
+        // socket.emit('message', messageData);
         
         callback({ success: true });
       } catch (error) {
@@ -246,150 +258,34 @@ export function initSocketIO(server) {
         callback({ error: { message: '服务器错误' } });
       }
     });
-    
-    // 文件消息事件
-    socket.on('file', async (fileData, callback) => {
+
+    // 文件上传信息
+    socket.on('file_info', async (fileInfo, callback) => {
       try {
-        console.log('文件消息事件触发',socket.user);
-        
-        // 验证用户是否已登录
-        if (!socket.user) {
-          return callback && callback({ error: { message: '未登录，无法发送文件' } });
-        }
-        
-        const { userId, username, fileName, fileType, fileSize, fileUrl, fileId } = fileData;
-        
-        // 验证文件数据
-        if (!userId || !username || !fileName || !fileUrl || !fileId) {
-          return callback && callback({ error: { message: '无效的文件数据' } });
-        }
-        
-        // 创建文件消息对象
-        const fileMessage = {
-          id: Date.now().toString(),
-          type: 'file',
-          userId,
-          username,
-          fileName,
-          fileType,
-          fileSize,
-          fileUrl,
-          fileId,
-          time: new Date().toISOString()
-        };
-        
+        console.log('文件上传信息:', fileInfo);
+        // 保存文件信息到数据库并获取ID
+        fileInfo.id = await uploadFileMessage(fileInfo);
         // 广播文件消息给所有客户端
-        io.emit('file', fileMessage);
-        
-        // 确定消息类型
-        let messageType = 'file';
-        if (fileType && fileType.startsWith('image/')) {
-          messageType = 'image';
-        }
-        
-        // 保存文件消息到数据库
-        await saveRoomMessage({
-          roomId: 1, // 默认聊天室
-          userId: parseInt(userId),
-          content: `${username} 分享了文件: ${fileName}`,
-          messageType,
-          fileUrl,
-          fileName,
-          fileSize
-        });
-        
-        if (callback) callback({ success: true });
+        io.to(fileInfo.roomId).emit('message', fileInfo);
+        callback({ success: true, data: fileInfo });
       } catch (error) {
-        console.error('处理文件消息错误:', error);
-        if (callback) callback({ error: { message: '服务器错误' } });
+        console.error('处理文件上传信息错误:', error);
+        callback({ error: { message: '服务器错误' } });
       }
     });
+    
     
     // 处理文件上传完成事件
     socket.on('file_uploaded', async (data, callback) => {
       try {
-        const { fileId, fileName, fileType, fileSize, fileUrl } = data;
-        
-        if (!socket.user) {
-          return callback({ error: { message: '未登录，无法发送文件' } });
-        }
-        
-        // 创建文件消息
-        const fileMessage = {
-          userId: socket.user.id,
-          username: socket.user.username,
-          fileName,
-          fileType,
-          fileSize,
-          fileUrl,
-          fileId,
-          messageType: 'file',
-          content: `${socket.user.username} 发送了文件: ${fileName}`,
-          time: new Date().toISOString()
-        };
-        
-        // 保存到数据库
-        const messageId = await saveRoomMessage({
-          roomId: 1, // 默认聊天室
-          userId: socket.user.id,
-          content: fileMessage.content,
-          messageType: 'file',
-          fileUrl,
-          fileName,
-          fileSize
-        });
-        
-        // 添加消息ID
-        fileMessage.id = messageId;
-        
-        // 广播给所有客户端
-        io.emit('file', fileMessage);
-        
-        callback({ success: true });
+
       } catch (error) {
         console.error('处理文件上传错误:', error);
         callback({ error: { message: '服务器错误' } });
       }
     });
     
-    // 注意：文件事件处理已合并到上面的'file'事件处理器中
-    // 此处删除重复的处理器以避免冲突
-    
-    // 图片事件
-    socket.on('image', async (data, callback) => {
-      const { userId, username, fileName, fileType, fileSize, fileData } = data;
-      
-      // 广播图片给所有客户端
-      io.emit('image', data);
-      
-      try {
-        // 保存图片消息到数据库
-        // 注意：这里简化处理，实际应用中应该将图片保存到文件系统或云存储
-        await saveUserMessage({
-          userId: parseInt(userId),
-          content: `发送了图片: ${fileName}`,
-          messageType: 'image',
-          fileName,
-          fileSize
-        });
-        
-        // 保存聊天室图片消息
-        await saveRoomMessage({
-          roomId: 1, // 默认聊天室
-          userId: parseInt(userId),
-          content: `发送了图片: ${fileName}`,
-          messageType: 'image',
-          fileName,
-          fileSize
-        });
-        
-        callback({ success: true });
-      } catch (error) {
-        console.error('保存图片消息错误:', error);
-        callback({ success: true }); // 即使保存失败也返回成功，不影响用户体验
-      }
-    });
-    
+
     // 断开连接事件
     socket.on('disconnect', async () => {
       console.log('客户端已断开连接:', clientId);
@@ -402,7 +298,7 @@ export function initSocketIO(server) {
           type: 'leave',
           userId: socket.user.id,
           username: socket.user.username,
-          time: new Date().toISOString()
+          time: formatTime()
         };
         
         io.emit('leave', leaveMessage);
