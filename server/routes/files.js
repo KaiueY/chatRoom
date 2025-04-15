@@ -11,7 +11,11 @@ router.get('/files/:fileId', async (ctx) => {
   const fileInfo = await getFileInfo(fileId);
   if (!fileInfo) {
     ctx.status = 404;
-    ctx.body = 'File not found';
+    ctx.body = {
+      code: 404,
+      data: null,
+      message:'文件不存在'
+    };
     return;
   }
   ctx.body = {

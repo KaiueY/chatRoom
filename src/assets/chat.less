@@ -1,0 +1,53 @@
+// 消息气泡动画
+@keyframes bubbleIn {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  // 应用到所有消息气泡
+  .bubble-wrapper {
+    animation: bubbleIn 0.3s ease-out;
+    
+    // 不同消息类型的延迟动画
+    .generate-delays(10);
+  }
+  
+  .generate-delays(@n, @i: 1) when (@i =< @n) {
+    &:nth-child(@{i}) {
+      animation-delay: (0.05s * @i);
+    }
+    .generate-delays(@n, (@i + 1));
+  }
+  
+  // 文件类型图标颜色映射
+  .file-icon {
+    &[data-type^="image"] { color: #ff7a45; }
+    &[data-type*="pdf"] { color: #f56c6c; }
+    &[data-type*="zip"] { color: #67c23a; }
+    &[data-type*="word"] { color: #409eff; }
+  }
+  
+  // 移动端适配
+  @media (max-width: 768px) {
+    .bubble-content-wrapper {
+      max-width: 85%;
+    }
+    
+    .file-bubble {
+      min-width: 180px;
+    }
+  }
+  
+  // 深色模式适配
+  @media (prefers-color-scheme: dark) {
+    .text-bubble {
+      background: #2a2a2a;
+      color: #e0e0e0;
+    }
+  }

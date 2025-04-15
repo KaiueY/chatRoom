@@ -23,7 +23,7 @@
         <div v-for="(msg, index) in messages" :key="index" class="history-message-item">
           <div class="message-header">
             <span class="username">{{ msg.username }}</span>
-            <span class="time">{{ formatDateTime(msg.created_at) }}</span>
+            <span class="time">{{ getFormatTime(msg.created_at) }}</span>
           </div>
           
           <div class="message-content">
@@ -66,7 +66,7 @@
 
 <script setup>
 import { ref, onMounted, watch } from 'vue';
-import formatDateTime from '@/utils/formatDateTime.js';
+import {getFormatTime} from '@/utils/formatTime.js';
 import axios from 'axios';
 import message from '@/components/Message';
 import formatFileSize from '@/utils/formatFileSize'

@@ -1,72 +1,109 @@
 <template>
   <div class="bubble-wrapper" :class="{ mine: isMine }">
     <el-avatar :size="32" class="avatar">
-      {{ username ? username[0].toUpperCase() : 'bot' }}
+      {{ username ? username[0].toUpperCase() : "bot" }}
     </el-avatar>
 
     <div class="bubble-content-wrapper">
-      <div class="bubble-content" :class="{ 'file-content': isFile, 'image-content': isImage }">
-        <!-- 普通文本消息 -->
-        <div v-if="isText" class="message" @mouseenter="handleMouseEnter" @mouseleave="handleMouseLeave">
-          {{ message }}
+      <div
+        class="bubble-content"
+        :class="{
+          'file-content': messageType === 'file',
+          'image-content': messageType === 'image',
+        }"
+      >
+        <!-- 根据消息类型渲染不同内容 -->
+        <div
+          v-if="messageType === 'text'"
+          class="message"
+          @mouseenter="handleMouseEnter"
+          @mouseleave="handleMouseLeave"
+        >
+          {{ content }}
         </div>
-        
-        <!-- 图片消息 -->
-        <div v-else-if="isImage" class="image-message" @mouseenter="handleImageMouseEnter" @mouseleave="handleImageMouseLeave">
-          <img :src="fileUrl" class="message-image" @click="viewImage" />
-          <div class="detailed-time" v-show="showDetailedTime">
-            {{ getTime(time) }}
-          </div>
+
+                <!-- 图片消息 -->
+                <div
+          v-if="messageType === 'image'"
+          class="image-message"
+          @mouseenter="handleImageMouseEnter"
+          @mouseleave="handleImageMouseLeave"
+        >
+          <el-image
+            style="width: 100px; height: 100px"
+            :src="fileUrl||''"
+            :zoom-rate="1.2"
+            :max-scale="7"
+            :preview-src-list="[fileUrl]"
+            :min-scale="0.2"
+            show-progress
+            :initial-index="4"
+            fit="cover"
+            :z-index="999"
+          >
+            <template #error>
+              <div class="image-slot">
+                <el-icon><icon-picture /></el-icon>
+                <span>加载失败</span>
+              </div> 
+            </template>
+          </el-image>
         </div>
-        
-        <!-- 文件消息 - 只有当不是图片类型时才显示 -->
-        <div v-else-if="isFile && !isImage" class="file-message" @mouseenter="handleMouseEnter" @mouseleave="handleMouseLeave">
-          <div class="file-icon">
-            <el-icon><Document /></el-icon>
-          </div>
-          <div class="file-info">
-            <div class="file-name">{{ fileName || message }}</div>
-            <div class="file-meta">
-              <span class="file-size" v-if="fileSize">{{ formatFileSize(fileSize) }}</span>
-              <span class="file-type" v-if="fileType">{{ fileType }}</span>
+
+        <!-- 文件消息 -->
+        <div
+          v-if="messageType === 'file'"
+          class="file-message"
+          @mouseenter="handleMouseEnter"
+          @mouseleave="handleMouseLeave"
+        >
+          <div class="file-message-content">
+            <div class="file-message-left">
+              <el-icon class="file-icon">
+                <Document />
+              </el-icon>
+              <div class="file-info">
+                <el-tooltip :content="fileName" placement="top" :show-after="500">
+                  <div class="file-name">{{ fileName }}</div>
+                </el-tooltip>
+                <div class="file-meta">
+                  <span class="file-size">{{ formatFileSize(fileSize) }}</span>
+                </div>
+              </div>
+            </div>
+            
+            <div class="file-message-right">
+              <!-- 操作按钮 -->
+              <el-button 
+                class="action-icon-btn" 
+                circle 
+                size="small"
+                @click.stop="handleUploadAction"
+              >
+                <component :is="currentActionIcon"></component>
+              </el-button>
             </div>
           </div>
           
-          <!-- 上传中显示进度条和取消按钮 -->
-          <div v-if="isUploading" class="file-action">
-            <el-progress 
-              type="circle" 
-              :percentage="uploadProgress" 
-              :width="28"
-              :stroke-width="4"
+          <!-- 线性上传进度条 -->
+          <div v-if="fileStatus.isUploading && !fileStatus.fileUrl" class="file-progress-wrapper">
+            <el-progress
+              :percentage="fileStatus.percentage || 0"
+              :indeterminate="false"
               :show-text="false"
+              :stroke-width="4"
+              class="upload-progress-linear"
             />
-            <el-button 
-              class="cancel-btn" 
-              circle 
-              size="small" 
-              @click.stop="cancelUpload"
-            >
-              <el-icon><Close /></el-icon>
-            </el-button>
-          </div>
-          
-          <!-- 上传完成显示下载图标 -->
-          <div v-else class="file-action">
-            <el-button 
-              class="download-icon-btn" 
-              circle 
-              size="small" 
-              @click.stop="downloadFile"
-              v-show="showDownloadIcon"
-            >
-              <el-icon><Download /></el-icon>
-            </el-button>
           </div>
         </div>
-        
-        <div class="detailed-time" v-show="showDetailedTime && !isImage">
-          {{ getTime(time) }}
+
+
+
+        <div
+          class="detailed-time"
+          v-show="showDetailedTime && messageType !== 'image'"
+        >
+          {{ getTime() }}
         </div>
       </div>
     </div>
@@ -74,91 +111,126 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted, computed } from "vue";
-import formatDateTime from "@/utils/formatDateTime.js";
-import { getFileDownloadUrl } from "@/api/chatRoom/fileUpload";
-import { Document, Download, Close } from "@element-plus/icons-vue";
-import { ElMessageBox, ElProgress } from "element-plus";
-import formatFileSize from '@/utils/formatFileSize'
-import fileUploader from "@/utils/fileUploader";
-
+import { ref, onUnmounted, computed, watch, reactive } from "vue";
+import { getFormatTime } from "@/utils/formatTime.js";
+import { Document, Download, Close, VideoPlay, VideoPause } from "@element-plus/icons-vue";
+import { Picture as IconPicture } from "@element-plus/icons-vue";
+import formatFileSize from "@/utils/formatFileSize";
 
 const props = defineProps({
-  username: String,
-  userId: Number,
-  message: String,
-  time: String,
-  isMine: Boolean,
-  messageType: {
-    type: String,
-    default: 'text',
-    validator: (value) => ['text', 'file', 'image'].includes(value)
+  messageData: {
+    type: Object,
+    default: () => ({}),
   },
-  fileName: String,
-  fileSize: Number,
-  fileType: String,
-  fileUrl: String,
-  fileId: [Number, String],
-  imageUrl: String,
-  isUploading: {
-    type: Boolean,
-    default: false,
-  },
-  uploadProgress: {
-    type: Number,
-    default: 0
-  },
-  uploadTaskId: String
 });
+
+const emit = defineEmits(['pause-upload', 'resume-upload', 'download']);
+
+// 直接从messageData中获取属性，减少computed的使用
+let {
+  username,
+  userId,
+  content,
+  created_at,
+  messageType,
+  fileName,
+  file,
+  fileSize,
+  fileUrl,
+} = props.messageData;
+
+const fileStatus = reactive({
+  userId,
+  fileName,
+  file,
+  fileUrl,
+  created_at,
+  percentage: 0,
+  checkpoint:null,
+  isPaused :false,
+  isUploading: fileUrl ? false : true
+})
+const currentUsername = localStorage.getItem("username");
+const isMine = username === currentUsername;
 
 const showDetailedTime = ref(false);
 const showDownloadIcon = ref(false);
 let timer = null;
 
-// 计算属性：判断消息类型
-const isFile = computed(() => {
-  return props.messageType === 'file';
+watch(()=>props.messageData,(newValue)=>{
+  // 只有当消息ID匹配时才更新状态，避免影响其他文件消息
+  if (newValue.userId === userId && newValue.fileName === fileName && newValue.created_at === created_at) {
+    console.log('更新文件状态:', newValue)
+    if (newValue.uploadProgress !== undefined) {
+      fileStatus.percentage = newValue.uploadProgress
+    }
+    if (newValue.checkpoint !== undefined) {
+      fileStatus.checkpoint = newValue.checkpoint
+    }
+    if (newValue.fileUrl) {
+      fileStatus.isUploading = false
+      fileStatus.fileUrl = newValue.fileUrl
+      fileUrl = newValue.fileUrl
+      console.log('文件上传完成:', fileStatus)
+    }
+  }
+},
+{ 
+  deep: true
+}
+)
+// 根据上传状态显示不同的图标
+const currentActionIcon = computed(() => {
+  if (!fileStatus.isUploading) {
+    return Download; // 上传完成，显示下载图标
+  } else if (fileStatus.isPaused) {
+    return VideoPlay; // 已暂停，显示继续图标
+  } else {
+    return VideoPause; // 上传中，显示暂停图标
+  }
 });
 
-const isImage = computed(() => {
-  return props.messageType === 'image';
-});
 
-const isText = computed(() => {
-  return props.messageType === 'text';
-});
-
-// 取消上传
-const cancelUpload = () => {
-  if (props.uploadTaskId) {
-    fileUploader.cancelTask(props.uploadTaskId);
-    // 发送取消上传事件
-    const cancelEvent = new CustomEvent('cancel-upload', {
-      detail: { taskId: props.uploadTaskId }
-    });
-    window.dispatchEvent(cancelEvent);
+// 处理上传操作按钮点击
+const handleUploadAction = () => {
+  console.log('点击了');
+  
+  if (!fileStatus.isUploading) {
+    console.log('文件已上传，执行下载');
+    console.log('fileUrl:', fileUrl);
+    
+    // 上传完成，执行下载
+    downloadFile();
+  } else if (fileStatus.isPaused) {
+    // 已暂停，继续上传
+    fileStatus.isPaused = false;
+    emit('resume-upload', fileStatus);
+  } else {
+    // 上传中，暂停上传
+    fileStatus.isPaused = true;
+    emit('pause-upload', fileStatus);
   }
 };
 
-
 // 下载文件
 const downloadFile = () => {
-  if (!props.fileId && !props.fileUrl) return;
+  if (!fileUrl) return;
+  // 创建一个隐藏的a标签用于下载
+  const a = document.createElement("a");
+  a.style.display = "none";
+  a.href = fileUrl;
+  a.download = fileName || "download";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
   
-  // 获取下载链接
-  let downloadUrl = props.fileUrl;
-  
-  // 创建下载链接
-  const link = document.createElement('a');
-  link.href = downloadUrl;
-  link.download = props.fileName || 'download';
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
+  // 触发下载事件
+  emit('download', props.messageData);
 };
 
-const getTime = (time) => {
-  return formatDateTime(time);
+
+const getTime = () => {
+  return getFormatTime(created_at);
 };
 
 const handleMouseEnter = () => {
@@ -177,21 +249,6 @@ const handleMouseLeave = () => {
   showDownloadIcon.value = false;
 };
 
-// 查看图片
-const viewImage = () => {
-  const imgUrl = props.imageUrl || props.message;
-  ElMessageBox.alert(
-    `<div style="text-align: center;"><img src="${imgUrl}" style="max-width: 100%;" /></div>`,
-    '查看图片',
-    {
-      dangerouslyUseHTMLString: true,
-      showConfirmButton: false,
-      showClose: true,
-      customClass: 'image-preview-dialog'
-    }
-  );
-};
-
 // 组件卸载时清除定时器
 onUnmounted(() => {
   clearTimeout(timer);
@@ -202,11 +259,13 @@ const handleImageMouseEnter = () => {
   timer = setTimeout(() => {
     showDetailedTime.value = true;
   }, 1000);
+  showDownloadIcon.value = true;
 };
 
 const handleImageMouseLeave = () => {
   clearTimeout(timer); // 清除定时器
   showDetailedTime.value = false;
+  showDownloadIcon.value = false;
 };
 </script>
 
@@ -263,7 +322,18 @@ const handleImageMouseLeave = () => {
   font-size: 14px;
   word-break: break-word;
 }
-
+.image-content{
+  padding: 0;
+}
+.image-slot {
+  width: 100%;
+  height: 100%;
+  font-size: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #716a6a;
+}
 /* 文件消息样式 */
 .file-content {
   padding: 8px;
@@ -272,8 +342,27 @@ const handleImageMouseLeave = () => {
 
 .file-message {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   padding: 4px;
+}
+
+.file-message-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.file-message-left {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.file-message-right {
+  display: flex;
+  align-items: center;
 }
 
 .file-icon {
@@ -289,7 +378,6 @@ const handleImageMouseLeave = () => {
 .file-info {
   flex: 1;
   overflow: hidden;
-  padding-right: 40px; /* 为绝对定位的下载按钮预留空间 */
 }
 
 .file-name {
@@ -315,17 +403,20 @@ const handleImageMouseLeave = () => {
   margin-right: 8px;
 }
 
-.file-action {
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
+.file-progress-wrapper {
+  width: 100%;
+  margin-top: 8px;
 }
-:deep(.el-progress-circle) svg{
-  width: auto;
-  height: auto;
+
+.upload-progress-linear {
+  width: 100%;
+}
+
+.image-upload-progress {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100px;
 }
 
 .cancel-btn {
@@ -344,7 +435,7 @@ const handleImageMouseLeave = () => {
   border: none;
 }
 
-.download-icon-btn {
+.action-icon-btn, .download-icon-btn {
   padding: 0;
   background-color: transparent;
   border: none;
@@ -358,18 +449,21 @@ const handleImageMouseLeave = () => {
   justify-content: center;
 }
 
-.download-icon-btn:hover {
+.action-icon-btn:hover, .download-icon-btn:hover {
   transform: scale(1.1);
 }
 
-.bubble-wrapper.mine .download-icon-btn {
+.bubble-wrapper.mine .action-icon-btn, .bubble-wrapper.mine .download-icon-btn {
   color: white;
 }
 
-/* 图片消息样式 */
+/* 图片消息样式
 .image-content {
-  padding: 4px;
-}
+  min-width: 40px;
+  min-height: 80px;
+
+  padding: 0px;
+} */
 
 .image-message {
   display: flex;
@@ -377,13 +471,17 @@ const handleImageMouseLeave = () => {
   align-items: center;
 }
 
-.message-image {
+.demo-image__error .el-image {
+  width: 100%;
+  height: 200px;
+}
+/* .message-image {
   max-width: 200px;
   max-height: 200px;
   border-radius: 4px;
   cursor: pointer;
   transition: transform 0.2s;
-}
+} */
 
 .message-image:hover {
   transform: scale(1.05);

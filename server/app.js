@@ -2,11 +2,11 @@ import Koa from 'koa';
 import Router from 'koa-router';
 import bodyParser from 'koa-bodyparser';
 import http from 'http';
-import serve from 'koa-static';
 import cors from '@koa/cors'; // 新增跨域支持
-import { initSocketIO } from './socket.js';
+import initSocketIO  from './socket/index.js';
 import messageRoutes from './routes/messages.js';
 import fileRoutes from './routes/files.js';
+import userRoutes from './routes/user.js';
 import ossRouter from './routes/ossUpload.js';
 import config from './config.js';
 
@@ -40,6 +40,7 @@ router.get('/', async (ctx) => {
 });
 
 router.use(ossRouter.routes(), ossRouter.allowedMethods());
+router.use(userRoutes.routes(), userRoutes.allowedMethods());
 router.use(messageRoutes.routes(), messageRoutes.allowedMethods());
 router.use(fileRoutes.routes(), fileRoutes.allowedMethods());
 // 路由注册
@@ -52,6 +53,9 @@ messageRoutes.stack.forEach(layer => {
 fileRoutes.stack.forEach(layer => {
   console.log('File路由:', layer.path, layer.methods);
 });
+userRoutes.stack.forEach(layer => {
+  console.log('User路由:', layer.path, layer.methods);
+})
 
 
 // 创建服务器

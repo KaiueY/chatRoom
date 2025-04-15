@@ -17,7 +17,7 @@ const router = new Router();
  * GET /messages/user
  */
 // 更清晰的参数处理
-router.get('/user/messages', authMiddleware, async (ctx) => {
+router.get('/room/userMessages', authMiddleware, async (ctx) => {
   console.log('已接受用户消息请求');
   try {
     
@@ -41,13 +41,10 @@ router.get('/user/messages', authMiddleware, async (ctx) => {
  * 获取聊天室的消息历史
  * GET /messages/room/:roomId
  */
-router.get('/room/messages', authMiddleware, async (ctx) => {
+router.get('/room/roomMessages', authMiddleware, async (ctx) => {
   try {
     // const roomId = parseInt(ctx.params.roomId) || 1;
-    const { roomId, limit, offset = 0 } = ctx.query;
-    console.log('已接受聊天室消息请求');
-    console.log(roomId,limit,offset);
-    
+    const { roomId, limit, offset = 0 } = ctx.query;    
     const messages = await getRoomMessages(roomId, limit, offset);
     // console.log('聊天室消息获取成功',messages);
     

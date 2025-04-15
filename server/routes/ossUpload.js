@@ -10,8 +10,6 @@ const accessKeyId = process.env.OSS_ACCESS_KEY_ID;
 const accessKeySecret = process.env.OSS_ACCESS_KEY_SECRET;
 const userArn = process.env.OSS_USER_ARN;
 router.get('/get_sts_token_for_oss_upload', async (ctx) => {
-    console.log('get_sts_token_for_oss_upload');
-    
     const sts = new STS({
       accessKeyId,
       accessKeySecret,
@@ -19,7 +17,7 @@ router.get('/get_sts_token_for_oss_upload', async (ctx) => {
   
     try {
       const result = await sts.assumeRole(userArn, '', 3000, 'sessiontest');
-      console.log('result',result);
+      // console.log('result',result);
       const  bucket = process.env.OSS_BUCKET;
       const  region  = process.env.OSS_REGION;
       

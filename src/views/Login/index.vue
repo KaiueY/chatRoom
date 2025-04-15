@@ -56,11 +56,14 @@
 import { reactive, ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import message from '@/components/message';
-import socketClient from '@/utils/socket';
+import getSocketClient from '@/utils/socket';
+import { loginApi,registerApi } from '@/api';
+import { watch } from 'vue';
 
 // 当前激活的标签页
 const activeTab = ref('login');
 const loading = ref(false);
+const router = useRouter();
 
 // 统一的表单数据
 const formData = reactive({
@@ -68,27 +71,9 @@ const formData = reactive({
   password: '',
   confirmPassword: '',
 });
+const socketClient = getSocketClient();
 
-const router = useRouter();
-
-// 初始化Socket.IO连接
 onMounted(async () => {
-  try {
-    // console.log('正在连接Socket.IO服务器...');
-    const socketToken = localStorage.getItem('token');
-    const auth = {token: socketToken};
-    // 如果Socket.IO未连接，则连接
-    if (!socketClient.isConnected()) {
-      await socketClient.connect({auth});
-    }
-    
-    // 监听认证事件
-    socketClient.on('auth_success', handleAuthSuccess);
-    socketClient.on('auth_error', handleAuthError);
-  } catch (error) {
-    console.error('Socket.IO连接错误:', error);
-    message.error('服务器连接失败，请稍后再试');
-  }
 });
 
 // 处理登录
@@ -97,17 +82,26 @@ const handleLogin = async () => {
     message.warning('请输入用户名和密码');
     return;
   }
-  
   try {
     loading.value = true;
-    
+    console.log('开始登录');
+
     // 使用Socket.IO发送登录请求
-    await socketClient.login({
+    const res = await loginApi({
       username: formData.username,
       password: formData.password
     });
-    
-    // 登录成功处理在handleAuthSuccess中
+    if(res.code==200) {
+      message.success('登录成功');
+      // 保存用户信息到本地存储
+      localStorage.setItem('userId', res.data.user.id);
+      localStorage.setItem('username', res.data.user.username);
+      localStorage.setItem('token', res.data.token);
+      console.log('登录成功', res);
+      console.log('connect',socketClient.isConnected());
+      router.push('/');
+
+    }
   } catch (error) {
     console.error('登录错误:', error);
     message.error(error.message || '登录失败，请稍后再试');
@@ -130,14 +124,27 @@ const handleRegister = async () => {
   
   try {
     loading.value = true;
+    console.log('开始注册');
     
     // 使用Socket.IO发送注册请求
-    await socketClient.register({
+    const res = await registerApi({
       username: formData.username,
       password: formData.password
     });
-    
-    // 注册成功处理在handleAuthSuccess中
+    if(res.code==200) {
+      
+
+      // 保存用户信息到本地存储
+      localStorage.setItem('userId', res.data.user.id);
+      localStorage.setItem('username', res.data.user.username);
+      localStorage.setItem('token', res.data.token);
+      socketClient.joinChat({
+        userId: res.data.user.id,
+        username: res.data.user.username
+      });
+      message.success('注册成功',res);
+      router.push('/');
+    }
   } catch (error) {
     console.error('注册错误:', error);
     message.error(error.message || '注册失败，请稍后再试');
@@ -146,38 +153,16 @@ const handleRegister = async () => {
   }
 };
 
-// 处理认证成功
-const handleAuthSuccess = (data) => {
-  const action = activeTab.value === 'login' ? '登录' : '注册';
-  // 保存用户信息到本地存储
-  localStorage.setItem('userId', data.user.id);
-  localStorage.setItem('username', data.user.username);
-  localStorage.setItem('token', data.token);
-  
-  // 加入聊天室
-  socketClient.joinChat({
-    userId: data.user.id,
-    username: data.user.username
-  });
-  if(activeTab.value === 'register'){
-    activeTab.value = 'login';
-    // 清空表单
+
+
+watch(() => activeTab.value, (newValue, oldValue) => {
+  if (newValue !== oldValue) {
+    // 切换标签页时清空表单
     formData.username = '';
     formData.password = '';
     formData.confirmPassword = '';
-    // 提示用户登录
-    message.success('注册成功');
-    router.push('/login');
-  }else{
-    message.success('登录成功');
-    router.push('/');
   }
-};
-
-// 处理认证错误
-const handleAuthError = (error) => {
-  message.error(error.message || '认证失败');
-};
+})
 </script>
 
 <style lang="css" scoped>

@@ -35,7 +35,7 @@ const  isUserAlreadyOnline = (userId)=> {
 export function initSocketIO(server) {
   const io = new Server(server, {
     cors: {
-      origin: '*', // 在生产环境中应该限制为特定域名
+      origin: '*',
       methods: ['GET', 'POST']
     }
   });
@@ -202,6 +202,10 @@ export function initSocketIO(server) {
         return callback({ error: { message: '无效的用户加入数据' } });
       }
 
+      // 将用户加入到指定的聊天室
+      socket.join(roomId);
+      console.log(`用户 ${username} 加入了聊天室 ${roomId}`);
+      
       const joinMessage = {
         roomId,
         messageType: 'system',
@@ -222,7 +226,7 @@ export function initSocketIO(server) {
         callback({ success: true }); // 即使保存失败也返回成功，不影响用户体验
       }
       // 广播用户加入消息
-      socket.to(roomId).emit('join', joinMessage);
+      io.to(roomId).emit('join', joinMessage);
       
     });
     
@@ -230,27 +234,30 @@ export function initSocketIO(server) {
     socket.on('message', async (messageData, callback) => {
       console.log('messageData',messageData);
       try {  
-        // 验证消息数据 return callback({ error: { message: '无效的消息数据' } });
+        // 验证消息数据
+        if (!messageData.roomId || !messageData.content) {
+          return callback({ error: { message: '无效的消息数据' } });
+        }
         
         const {roomId} = messageData;
         // 保存消息到数据库
         messageData.id = await saveRoomMessage(messageData);
-        // 广播消息给所有客户端，包括发送者
-// 检查当前聊天室内的用户
-const roomUsers = Array.from(io.sockets.adapter.rooms.get(roomId) || [])
-  .map(socketId => {
-    const client = Array.from(clients.values())
-      .find(client => client.socket.id === socketId);
-    return client ? {
-      userId: client.userId,
-      username: client.username
-    } : null;
-  })
-  .filter(user => user !== null);
-
-console.log(`当前聊天室 ${roomId} 的用户:`, roomUsers);
+        
+        // 检查当前聊天室内的用户
+        const roomUsers = Array.from(io.sockets.adapter.rooms.get(roomId) || [])
+          .map(socketId => {
+            const client = Array.from(clients.values())
+              .find(client => client.socket.id === socketId);
+            return client ? {
+              userId: client.userId,
+              username: client.username
+            } : null;
+          })
+          .filter(user => user !== null);
+        console.log(`当前聊天室 ${roomId} 的用户:`, roomUsers);
+        
+        // 使用io.to广播消息给房间内所有用户，包括发送者
         io.to(roomId).emit('message', messageData);
-        // socket.emit('message', messageData);
         
         callback({ success: true });
       } catch (error) {
@@ -269,7 +276,7 @@ console.log(`当前聊天室 ${roomId} 的用户:`, roomUsers);
         io.to(fileInfo.roomId).emit('message', fileInfo);
         callback({ success: true, data: fileInfo });
       } catch (error) {
-        console.error('处理文件上传信息错误:', error);
+        console.error('上传信息错误:', error);
         callback({ error: { message: '服务器错误' } });
       }
     });
