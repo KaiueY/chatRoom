@@ -6,16 +6,10 @@
  * 3. 支持设置重试延迟时间
  * 4. 支持指数退避策略
  */
+import message from '../../../components/Message'
 
 /**
  * 创建重试拦截器
- * @param {Object} axios - axios实例
- * @param {Object} options - 重试配置选项
- * @param {number} options.retries - 最大重试次数，默认3次
- * @param {number} options.retryDelay - 重试延迟时间(ms)，默认1000ms
- * @param {boolean} options.shouldResetTimeout - 是否重置超时时间，默认true
- * @param {Function} options.retryCondition - 重试条件，默认所有非2xx状态码都重试
- * @param {boolean} options.exponentialBackoff - 是否使用指数退避策略，默认true
  */
 export function setupRetry(axios, options = {}) {
   const {
@@ -30,6 +24,7 @@ export function setupRetry(axios, options = {}) {
       );
     },
     exponentialBackoff = true,
+    allowedMethods = ['get', 'post'],
   } = options;
 
   // 添加响应拦截器处理重试逻辑
@@ -39,6 +34,10 @@ export function setupRetry(axios, options = {}) {
 
     // 如果配置不存在，或者不满足重试条件，则直接拒绝
     if (!config || !retryCondition(error)) {
+      return Promise.reject(error);
+    }
+    const method = (config.method || '').toUpperCase();
+    if (!allowedMethods.includes(method)) {
       return Promise.reject(error);
     }
 
@@ -60,8 +59,7 @@ export function setupRetry(axios, options = {}) {
       if (exponentialBackoff) {
         delay = retryDelay * Math.pow(2, config.__retryCount - 1);
       }
-      
-      console.log(`请求重试: 第${config.__retryCount}次，延迟${delay}ms`);
+      message.info(`请求重试: 第${config.__retryCount}次，延迟${delay}ms`)
       setTimeout(resolve, delay);
     });
 
@@ -104,7 +102,6 @@ export default class AxiosRetry {
 
   /**
    * 为axios实例设置重试机制
-   * @param {Object} axios - axios实例
    */
   setup(axios) {
     setupRetry(axios, this.options);
@@ -112,8 +109,6 @@ export default class AxiosRetry {
 
   /**
    * 创建一个带有重试机制的axios实例
-   * @param {Object} axios - axios实例
-   * @returns {Object} - 配置了重试机制的axios实例
    */
   static create(axios, options = {}) {
     const retry = new AxiosRetry(options);

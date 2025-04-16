@@ -20,8 +20,8 @@ import {
  * @param {number} params.offset - 分页偏移量
  * @returns {Promise<Object>} 聊天室消息列表
  */
-export async function getRoomMessagesList( params = {}) {
-  return get(getRoomMessages, params);
+export async function getRoomMessagesList( params = {},config = {}) {
+  return get(getRoomMessages, params,config);
 }
 
 /**

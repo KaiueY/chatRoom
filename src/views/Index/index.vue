@@ -142,6 +142,7 @@ const previewFiles = ref([]); // 预览文件列表
 
 const socketClient = getSocetClient();
 const oosUploader = new OSSUploader();
+const controller = new AbortController();
 /**
  * 滚动到聊天框底部
  */
@@ -191,6 +192,7 @@ const verifyUserInfo = () => {
  * 清除用户信息并跳转到登录页面
  */
 const loginOut = () => {
+  controller.abort();
   socketClient.disconnect();
   localStorage.removeItem("token");
   localStorage.removeItem("username");
@@ -549,12 +551,14 @@ const getUserMessages = async () => {
  */
 const getRoomMessages = async (loadMore = false) => {
   try {
+    
+    signal = controller.signal;
     isLoading.value = true;
     const res = await getRoomMessagesList({
       roomId: roomId.value,
       limit: 50,
       offset: loadMore ? offset.value : 0,
-    });
+    },{signal});
     if (res.code === 200) {
       if (loadMore) {
         // 如果是加载更多，将新消息添加到现有消息列表前面
@@ -576,6 +580,10 @@ const getRoomMessages = async (loadMore = false) => {
       offset.value += 50;
     }
   } catch (error) {
+    if (error.name === "AbortError") {
+      console.log("请求已取消");
+      return;
+    }
     console.error("获取房间消息错误:", error);
     message.error("获取房间消息失败，请稍后再试");
   } finally {

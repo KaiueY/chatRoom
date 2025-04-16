@@ -1,15 +1,6 @@
-/**
- * axios封装
- * 功能：
- * 1. 统一配置请求头、超时时间等
- * 2. 请求拦截器：添加token等认证信息
- * 3. 响应拦截器：统一处理响应数据和错误
- * 4. 封装常用请求方法：get、post、put、delete
- * 5. 特殊请求方法：文件上传、图片上传
- */
-
 import axios from 'axios';
-
+import AxiosRetry from './axiosRetry';
+import canceler from './axiosCancel'
 // 创建axios实例
 const service = axios.create({
   baseURL: '/api', // 从环境变量获取API基础URL，默认为'/api'
@@ -19,16 +10,24 @@ const service = axios.create({
   },
 });
 
+AxiosRetry.create(service,{
+  retries: 3,
+  retryDelay: 1000,
+  allowedMethods: ['GET', 'POST'],
+})
+
 // 请求拦截器
 service.interceptors.request.use(
   (config) => {
     // 从localStorage获取token
+    canceler.add(config)
     const token = localStorage.getItem('token');
     
     // 如果存在token，则添加到请求头中
     if (token) {
       config.headers['Authorization'] = `Bearer ${token}`;
     }
+    canceler.add(config)
     
     return config;
   },
@@ -41,6 +40,7 @@ service.interceptors.request.use(
 // 响应拦截器
 service.interceptors.response.use(
   (response) => {
+    canceler.remove(response.config)
     const res = response.data;
     
     // 如果响应成功，直接返回数据
